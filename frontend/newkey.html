@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AIDJ 单机版 · API Key</title>
+<style>
+:root{--bg:#0b0d12;--card:#151922;--card2:#1b2130;--tx:#e8ecf5;--mut:#8b93a7;
+--ac:#7c5cff;--ac2:#00d4c6;--ok:#37d39b;--err:#ff5d6c;--bd:#262d3f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);
+font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.wrap{max-width:560px;margin:0 auto;padding:40px 20px 60px}
+.hero{text-align:center;margin-bottom:26px}
+.hero .logo{width:56px;height:56px;margin:0 auto 12px;border-radius:14px;
+background:linear-gradient(135deg,var(--ac),var(--ac2));display:flex;
+align-items:center;justify-content:center;font-size:26px}
+.hero h1{margin:0;font-size:21px}
+.hero p{color:var(--mut);margin:8px 0 0;font-size:13px;line-height:1.8}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:18px;margin-bottom:14px}
+.card h2{margin:0 0 8px;font-size:15px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.key{background:var(--card2);border:1px solid var(--bd);border-radius:10px;padding:12px;
+font-family:monospace;font-size:14px;word-break:break-all;margin-top:8px;color:var(--ac2)}
+.badge{display:inline-block;font-size:11px;border-radius:6px;padding:2px 8px;margin-left:8px;vertical-align:middle}
+.badge.vip{background:#231a33;color:var(--ac2);border:1px solid #3d2f57}
+.badge.free{background:#16281f;color:var(--ok);border:1px solid #24443a}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:13px;margin-top:12px;
+background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+.btn.ghost{background:none;border:1px solid var(--bd);color:var(--tx)}
+.btn:active{opacity:.85}.btn[disabled]{opacity:.45;cursor:not-allowed}
+.msg{font-size:13px;line-height:1.6;padding:10px 12px;border-radius:10px;margin-top:10px;display:none}
+.msg.err{display:block;background:#2a1519;border:1px solid #55202a;color:var(--err)}
+.msg.ok{display:block;background:#12281f;border:1px solid #1f4d3a;color:var(--ok)}
+textarea{width:100%;background:var(--card2);border:1px solid var(--bd);color:var(--tx);
+border-radius:10px;padding:12px;font-size:14px;outline:none;margin-top:8px;font-family:monospace;resize:vertical}
+a.open{display:inline-block;margin-top:10px;background:linear-gradient(135deg,var(--ac),var(--ac2));
+color:#fff;text-decoration:none;border-radius:10px;padding:10px 18px;font-size:14px;font-weight:700}
+.hint{color:var(--ac2);font-size:12px}
+.foot{margin-top:24px;text-align:center;color:var(--mut);font-size:12px;line-height:1.9}
+code{background:var(--card2);padding:2px 6px;border-radius:5px;font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="logo">▶</div>
+    <h1>API Key 与额度</h1>
+    <p>生成能力由 <b style="color:var(--ac2)">new.aiwyq.bond</b> 网关提供。<br/>
+    额度不足时到 new 控制台充值；也可换成自己的 key。</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <h2>当前绑定 Key<span id="badge"></span></h2>
+      <button class="btn ghost" id="copyBtn" style="width:auto;margin:0;padding:8px 16px;font-size:13px">复制</button>
+    </div>
+    <div class="key" id="keyBox">加载中…</div>
+    <p class="hint" id="hint" style="margin-top:10px"></p>
+  </div>
+
+  <div class="card">
+    <h2>额度不足？去 new 控制台充值 ↗</h2>
+    <p style="color:var(--mut);font-size:13px;line-height:1.8;margin:6px 0">
+      打开 new.aiwyq.bond 控制台（<code>/console/topup</code>），为当前账号充值后即可继续使用。</p>
+    <a class="open" href="https://new.aiwyq.bond/console/topup" target="_blank" rel="noopener">打开 new.aiwyq.bond 控制台 ↗</a>
+  </div>
+
+  <div class="card">
+    <h2>节点加速服务 · 赚视频时长 ↗</h2>
+    <p style="color:var(--mut);font-size:13px;line-height:1.8;margin:6px 0">
+      把你闲置的带宽贡献给 DePIN 网络：周围网页版用户经你的机器就近取数，
+      贡献按流量<b style="color:var(--ac2)">自动计入 156 中心钱包</b>，1 分 = 1 秒视频时长。</p>
+    <a class="open" href="/accel.html">打开加速服务开关 ↗</a>
+  </div>
+
+  <div class="card">
+    <h2>替换为自己的 Key</h2>
+    <p style="color:var(--mut);font-size:13px;line-height:1.8;margin:6px 0">
+      粘贴自己的 key（sk- 开头，new.aiwyq.bond 控制台可创建），多把 key 用换行分隔可提高并发额度。保存后立即生效。</p>
+    <textarea id="newKey" rows="2" placeholder="sk-xxxxxxxxxxxxxxxx"></textarea>
+    <button class="btn" id="saveBtn">保存 key</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="foot">
+    手动编辑位置：<code>backend\data\local_api_key.txt</code> · 命令行：<code>AIDJ.exe key</code>
+  </div>
+</div>
+
+<script>
+(async function init(){
+  const keyBox = document.getElementById('keyBox');
+  const hint = document.getElementById('hint');
+  const badge = document.getElementById('badge');
+  async function jfetch(p, opt){
+    const r = await fetch(p, opt);
+    let d; try{ d = await r.json(); }catch(e){ d = {}; }
+    return {ok: r.ok, d};
+  }
+  let data = null;
+  try{
+    const r = await jfetch('/api/standalone/new-key');
+    if(!r.ok){ keyBox.textContent = '加载失败'; return; }
+    data = r.d;
+  }catch(e){ keyBox.textContent = '加载失败：' + e; return; }
+
+  if(!data.configured){
+    keyBox.textContent = '尚未配置 key';
+    hint.textContent = '下方粘贴你的 key 并保存。';
+    return;
+  }
+  keyBox.textContent = data.key;
+  hint.textContent = data.topup_hint || '';
+  if(data.is_builtin_vip){
+    badge.innerHTML = '<span class="badge vip">内置共享 vip key</span>';
+  } else if(data.count > 1){
+    badge.innerHTML = '<span class="badge free">已配置 ' + data.count + ' 把</span>';
+  }
+
+  document.getElementById('copyBtn').onclick = async function(){
+    try{ await navigator.clipboard.writeText(data.key); this.textContent = '已复制'; setTimeout(()=>this.textContent='复制',1500);}catch(e){}
+  };
+  document.getElementById('saveBtn').onclick = async function(){
+    const raw = document.getElementById('newKey').value.trim();
+    if(!raw){ showMsg('请粘贴 key（sk- 开头）', false); return; }
+    const keys = raw.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    this.disabled = true;
+    try{
+      const r = await jfetch('/api/standalone/save-key', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({keys: keys})});
+      if(r.ok){
+        showMsg('已保存 ' + r.d.count + ' 把 key，立即生效。', true);
+        document.getElementById('newKey').value = '';
+        setTimeout(init, 300);
+      } else showMsg('保存失败：' + (r.d.detail || JSON.stringify(r.d)), false);
+    }catch(e){ showMsg('网络错误：' + e, false); }
+    this.disabled = false;
+  };
+  function showMsg(t, ok){
+    const m = document.getElementById('msg');
+    m.textContent = t; m.className = 'msg ' + (ok?'ok':'err');
+  }
+})();
+</script>
+</body>
+</html>

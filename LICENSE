@@ -1,0 +1,121 @@
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" will mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" will mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" will mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") will mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form will mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, configuration sources, and other files in their original
+      source form.
+
+      "Object" form will mean any form resulting from mechanical transformation
+      or translation of a Source form, including but not limited to
+      compiled object code, generated documentation, and conversions to
+      other media types.
+
+      "Work" will mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" will mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" will mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of communication, including but not limited to
+      electronic mail transmission, source code control system, or
+      similar issue tracking system, used by the Licensor or accepted by
+      the Licensor for inclusion in the Work, including the original
+      Work itself.
+
+      "Contributor" will mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received and included in
+      the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, royalty-free, irrevocable copyright
+      license to reproduce, prepare Derivative Works of, publicly display,
+      publicly perform, sublicense, and distribute the Work and such
+      Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, royalty-free, irrevocable patent
+      license to make, have made, use, offer to sell, sell, import,
+      and otherwise dispose of the Contribution, on a non-exclusive basis,
+      only as covered under Section 2.
+
+   4. Redistributable Rights.  Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, royalty-free, irrevocable copyright
+      and patent license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute
+      the Work and Derivative Works in Source or Object form.
+
+   5. Trademark Disclaimer. The names of the authors, licensees,
+      or the name of any contributor may not be used to endorse or
+      promote products derived from the Work without specific prior
+      written permission of the owner or licensor.
+
+   6. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law, will any Contributor be liable
+      to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as
+      a result of this license or out of the use or inability to use
+      the Work.
+
+   7. Termination. This license will automatically terminate upon
+      material breach, or be renewed at Licensor's sole discretion.
+
+   8. License grant and termination are automatic upon breach.
+
+   9. Accepting or rejecting the license is not a license to the Work
+      unless all conditions in this document are met.
+
+   END OF TERMS AND CONDITIONS
+
+   Copyright 2026 AIDJ contributors
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+   implied. See the License for the specific language governing
+   permissions and limitations under the License.

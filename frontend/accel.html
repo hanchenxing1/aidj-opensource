@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIDJ · 节点加速服务</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --ink:#e6edf3; --dim:#8b949e; --accent:#3fb950; --accent2:#58a6ff; --warn:#d29922; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; min-height: 100vh; }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 24px 16px 48px; }
+  .top { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .top img { width: 44px; height: 44px; border-radius: 10px; }
+  .top h1 { font-size: 18px; font-weight: 700; }
+  .top .sub { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .card { background: var(--card); border: 1px solid #21262d; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; color: var(--dim); font-weight: 600; margin-bottom: 14px; letter-spacing: .3px; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #21262d; }
+  .row:last-child { border-bottom: none; }
+  .row .k { font-size: 14px; }
+  .row .v { font-size: 13px; color: var(--dim); word-break: break-all; }
+  /* 大开关 */
+  .switch-area { display: flex; flex-direction: column; align-items: center; padding: 8px 0 4px; }
+  .switch-label { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+  .switch-label .state-on { color: var(--accent); }
+  .switch-label .state-off { color: var(--dim); }
+  .switch { width: 72px; height: 40px; border-radius: 20px; background: #30363d; position: relative; cursor: pointer; transition: background .2s; border: 1px solid #444c56; }
+  .switch.on { background: var(--accent); border-color: var(--accent); }
+  .switch .knob { width: 32px; height: 32px; border-radius: 50%; background: #fff; position: absolute; top: 3px; left: 4px; transition: left .2s; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+  .switch.on .knob { left: 34px; }
+  .switch-desc { color: var(--dim); font-size: 12px; margin-top: 14px; text-align: center; line-height: 1.6; }
+  /* 奖励卡片 */
+  .reward { text-align: center; padding: 6px 0; }
+  .reward .num { font-size: 40px; font-weight: 800; color: var(--accent); line-height: 1.1; }
+  .reward .num small { font-size: 14px; font-weight: 500; color: var(--dim); }
+  .reward .sub { color: var(--dim); font-size: 12px; margin-top: 8px; line-height: 1.6; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge.on { background: rgba(63,185,80,.15); color: var(--accent); }
+  .badge.off { background: rgba(139,148,158,.15); color: var(--dim); }
+  .hint { background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.25); color: var(--accent2); font-size: 12px; padding: 10px 12px; border-radius: 8px; line-height: 1.6; margin-top: 12px; }
+  .err { color: #f85149; font-size: 12px; margin-top: 8px; line-height: 1.5; }
+  .busy { opacity: .6; pointer-events: none; }
+  .back { color: var(--dim); font-size: 12px; margin-bottom: 16px; display: inline-block; }
+  .footer { text-align: center; color: var(--dim); font-size: 11px; margin-top: 24px; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/newkey.html">← 返回</a>
+  <div class="top">
+    <img src="/favicon.svg" alt="AIDJ">
+    <div>
+      <h1>节点加速服务</h1>
+      <div class="sub">把你的闲置带宽贡献给 DePIN 网络，赚视频时长</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>加速服务开关</h2>
+    <div class="switch-area" id="switchArea">
+      <div class="switch-label" id="switchLabel">加载中…</div>
+      <div class="switch" id="switch" role="button" aria-label="加速服务开关"><div class="knob"></div></div>
+      <div class="switch-desc" id="switchDesc">开启后，本机会作为 DePIN 加速节点，帮周围网页版用户就近回源取数，贡献按流量自动计入你的钱包。</div>
+    </div>
+    <div class="err" id="switchErr"></div>
+  </div>
+
+  <div class="card">
+    <h2>节点状态</h2>
+    <div class="row"><span class="k">本机 P2P 节点</span><span class="v" id="vPeer">—</span></div>
+    <div class="row"><span class="k">P2P 监听地址</span><span class="v" id="vListen">—</span></div>
+    <div class="row"><span class="k">156 中心登记</span><span class="v"><span class="badge off" id="vReg">未知</span></span></div>
+    <div class="row"><span class="k">奖励归属账号</span><span class="v" id="vOwner">—</span></div>
+    <div class="row"><span class="k">心跳间隔</span><span class="v" id="vInterval">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>贡献奖励（156 中心统一发放）</h2>
+    <div class="reward">
+      <div class="num" id="rewardSec">0 <small>秒视频</small></div>
+      <div class="sub" id="rewardSub">累计贡献奖励 · 1 分 = 1 秒视频时长<br>反代流量自动入账，无需手动领取</div>
+      <div class="hint" id="rewardHint" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    AIDJ DePIN 节点 · 加速贡献换取算力与时长<br>
+    关闭开关即停止贡献；90 秒无心跳后 156 注册表自动视为离线
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { enabled: false, busy: false };
+
+function loadStatus() {
+  fetch('/api/standalone/accel/status')
+    .then(r => r.json())
+    .then(d => {
+      state.enabled = !!d.accel_enabled;
+      $('switch').classList.toggle('on', state.enabled);
+      $('switchLabel').innerHTML = state.enabled
+        ? '<span class="state-on">已开启</span> · 正在为网页用户加速'
+        : '<span class="state-off">已关闭</span> · 点击开启贡献带宽赚时长';
+      $('vPeer').textContent = d.peer_id ? d.peer_id.slice(0, 24) + '…' : (d.sidecar_running ? 'sidecar 运行中' : 'sidecar 未运行');
+      $('vListen').textContent = (d.listen_addrs || []).join(' · ') || '—';
+      $('vOwner').textContent = d.owner_email || '—';
+      $('vInterval').textContent = d.heartbeat_interval_sec ? (d.heartbeat_interval_sec + 's') : '—';
+      const reg = $('vReg');
+      if (d.heartbeat_active) { reg.textContent = '已登记 · 心跳中'; reg.className = 'badge on'; }
+      else { reg.textContent = '未登记'; reg.className = 'badge off'; }
+    })
+    .catch(() => {});
+}
+
+function loadReward() {
+  fetch('/api/standalone/accel/reward')
+    .then(r => r.json())
+    .then(d => {
+      const sec = (d && d.video_seconds_hint) ? Number(d.video_seconds_hint) : 0;
+      const fen = (d && d.reward_fen) ? Number(d.reward_fen) : 0;
+      const mb = (d && d.served_mb) ? Number(d.served_mb) : 0;
+      $('rewardSec').innerHTML = sec + ' <small>秒视频</small>';
+      $('rewardSub').innerHTML = `累计贡献奖励 ${fen} 分（¥${(fen/100).toFixed(2)}）· 已服务 ${mb} MB<br>反代流量自动入账，1 分 = 1 秒视频时长`;
+      if (d && d.registered === false) {
+        const h = $('rewardHint');
+        h.style.display = 'block';
+        h.textContent = '本节点尚未在 156 中心登记，开启开关后开始计数。';
+      }
+      if (d && d.ok === false && d.reason) {
+        const h = $('rewardHint');
+        h.style.display = 'block';
+        h.textContent = '奖励查询：' + d.reason;
+      }
+    })
+    .catch(() => {});
+}
+
+$('switch').addEventListener('click', async () => {
+  if (state.busy) return;
+  state.busy = true;
+  $('switchArea').classList.add('busy');
+  $('switchErr').textContent = '';
+  const next = !state.enabled;
+  try {
+    const r = await fetch('/api/standalone/accel/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: next }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.ok === false) {
+      $('switchErr').textContent = d.reason || d.detail || '操作失败（' + r.status + '）';
+    }
+  } catch (e) {
+    $('switchErr').textContent = '请求失败：' + e.message;
+  }
+  state.busy = false;
+  $('switchArea').classList.remove('busy');
+  loadStatus();
+  loadReward();
+});
+
+loadStatus();
+loadReward();
+setInterval(() => { loadStatus(); loadReward(); }, 30000);
+</script>
+</body>
+</html>

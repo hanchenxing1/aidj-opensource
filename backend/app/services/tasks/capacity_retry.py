@@ -1,0 +1,699 @@
+"""视频任务容量退避重入队机制（上游 429 / queue full / 503 无 channel，命中容量后台排队）。
+
+背景：New API / Agnes 免费池在高峰会返回
+- 429 ``fail_to_fetch_task``（当前分组上游负载已饱和）
+- 429/503 ``video_queue_full``（video queue is full）
+这类错误是**容量性**的，任务本身没问题，立即判 failed 会拖垮串行尾帧批次。
+
+策略（用户可手动取消）：
+- 提交阶段命中容量错误且任务带 ``capacity_retry`` 标签 → 不收敛 failed，
+  保持 pending + ``next_action_at`` 指数退避（90s → ×3 → 封顶 30min），
+  资金保持冻结（frozen），成功/取消时由 settle_task 结算；
+- 退避到期调度器自动重新领取提交；提交成功即视为命中上游容量，自动继续生成；
+- 再次 429 继续加大退避，无限重排队；用户随时可取消（全额退款）；
+- 串行尾帧批次不再因「上一镜容量失败」级联取消后镜，后镜在前镜成功后逐个激活。
+
+标签（写在 task.payload，零 DB 迁移）：
+- ``capacity_retry``：全部视频类任务（CAPACITY_RETRY_TASK_TYPES）
+- ``free_task``：免费版用户（User.plan == "free"）的视频类任务，
+  同时把 priority 抬到付费之上（付费 100 先出队，免费自动排队）
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models_tasks import TaskRun
+
+logger = logging.getLogger(__name__)
+
+# 启用容量退避重入队的任务类型（提交阶段会打到上游视频生成接口的任务）
+CAPACITY_RETRY_TASK_TYPES = frozenset({"fragment_video", "asset_video", "shot_regen_video"})
+# 上游「暂时繁忙」类瞬时故障（Seedream 5xx/不可达）也需自愈的图像生成任务类型
+IMAGE_TRANSIENT_RETRY_TASK_TYPES = frozenset({"asset_image"})
+
+PAYLOAD_CAPACITY_RETRY = "capacity_retry"
+PAYLOAD_FREE_TASK = "free_task"
+PAYLOAD_CAPACITY_RETRIES = "capacity_retries"
+
+# 免费用户任务优先级抬升：基准 100 → 免费 120（调度器按 priority ASC 出队，付费优先）
+FREE_TASK_PRIORITY_BUMP = 20
+
+# 上游容量错误的文本特征（New API 业务码 / Ark 429 包装文案 / Agnes 容量限流）
+_CAPACITY_MARKERS = (
+    "fail_to_fetch_task",
+    "video_queue_full",
+    "video queue is full",
+    "queue is full",
+    "上游负载已饱和",
+    "当前分组上游",
+    "capacity limit",
+    "error 429",
+    "status 429",
+    "response 429",
+    # Agnes 云端 429 全局限流（账号级 Too many requests / rate_limit_exceeded）：
+    # 与用户个人权益额度无关，属共享上游容量饱和——退避重排队而非判 failed 甩给用户
+    # （前端曾把 429 原文误报成「免费额度已用完，请订阅会员」，已同步修文案）。
+    "rate_limit_exceeded",
+    "too many requests",
+    "http 429",
+    # distributor 503 无可用 channel：模型被 task plugin 声明但无启用渠道（瞬时可用性
+    # 故障，与 429 饱和同源——任务本身没问题，退避重排队即可，不应毒化串行批次）
+    "model_not_found",
+    "no available channel",
+    "no available channels",
+    "all channels failed",
+)
+
+# 上游「暂时繁忙」类瞬时故障（exc_format 会软化为「上游服务暂时繁忙，请稍后再试」）：
+# Seedream 5xx、New API 到上游不可达。任务本身没问题，退避重排队即可自愈，
+# 不应直接判失败把临时故障甩给用户、毒化串行尾帧批次。
+_UPSTREAM_TRANSIENT_MARKERS = (
+    "seedream error 5",            # 官方方舟 5xx（对应 exc_format 的 Seedream error 5\d\d）
+    "出图失败 5",                   # New API / TokenFree 生图 5xx 包装文案
+    "出视频失败 5",                 # New API / TokenFree 生视频 5xx 包装文案
+    "do_request_failed",            # New API 到上游请求失败（不可达）
+    "failed to reach upstream",     # 上游通道不可达
+    "上游服务暂时繁忙",             # exc_format 对上游瞬时故障的软化文案（executor ok:False 分支已软化）
+)
+
+# 确定性、重试无效的故障（敏感/隐私审核、欠费/积分、协议/格式/音频）：
+# 即便文本里带 5xx/连接失败字样，也不能靠退避重排队解决，直接判失败避免空转烧配额。
+_NON_RETRYABLE_MARKERS = (
+    "input text sensitive",
+    "inputimagesensitive",
+    "privacyinformation",
+    "sensitivecontent",
+    "may contain real person",
+    "参考图疑似真人",
+    "敏感",
+    "内容审核",
+    "accountoverdue",
+    "账户欠费",
+    "credits insufficient",
+    "积分不足",
+    "task_protocol_error",
+    "invalid task protocol",
+    "task protocol request failed",
+    "file type not supported",
+    "参考图格式不支持",
+    "参考音频过短",
+    "audio duration",
+)
+
+
+def is_upstream_transient_error(exc: BaseException | str) -> bool:
+    """上游「暂时繁忙」类瞬时故障：Seedream 5xx / 到上游不可达（任务本身没问题，退避可自愈）。"""
+    text = str(exc or "").lower()
+    if not text:
+        return False
+    # 确定性、重试无效的故障（敏感/欠费/协议/格式/音频）排除，避免空转烧配额
+    if any(marker in text for marker in _NON_RETRYABLE_MARKERS):
+        return False
+    return any(marker in text for marker in _UPSTREAM_TRANSIENT_MARKERS)
+
+
+def is_capacity_error(exc: BaseException | str) -> bool:
+    """判断异常文本是否属于上游容量/瞬时故障（可后台排队重试）。"""
+    text = str(exc or "").lower()
+    if not text:
+        return False
+    if is_upstream_transient_error(exc):
+        return True
+    # 确定性、重试无效的错误先行排除，避免敏感审核/欠费/格式问题被当容量空转
+    if any(marker in text for marker in _NON_RETRYABLE_MARKERS):
+        return False
+    return any(marker.lower() in text for marker in _CAPACITY_MARKERS)
+
+
+def capacity_backoff_seconds(retries_done: int, settings: Any | None = None) -> int:
+    """指数退避：base → base×factor → ... → 封顶 max（默认 90s → 270s → 810s → 1800s 封顶）。"""
+    from app.config import get_settings
+
+    s = settings or get_settings()
+    base = max(10, int(getattr(s, "video_capacity_backoff_base_sec", 90)))
+    factor = max(1, int(getattr(s, "video_capacity_backoff_factor", 3)))
+    cap = max(base, int(getattr(s, "video_capacity_backoff_max_sec", 1800)))
+    n = max(0, int(retries_done))
+    delay = base * (factor ** min(n, 4))
+    return int(min(max(delay, base), cap))
+
+
+def is_paid_user(plan: str | None, balance_fen: int | None = None) -> bool:
+    """付费判定：订阅档位（plan≠free）或余额>0（余额充足用户）都算付费。
+
+    balance_fen=None 表示调用方未提供余额（旧调用点）——仅按 plan 判定，
+    保持历史「free plan ⇒ 免费」语义不变。
+    """
+    plan_norm = str(plan or "free").strip().lower()
+    if plan_norm and plan_norm != "free":
+        return True
+    if balance_fen is not None and int(balance_fen) > 0:
+        return True
+    return False
+
+
+async def _users_video_quota_exhausted(db: AsyncSession, user_ids: list[int]) -> set[int]:
+    """订阅用户当日视频优先时长额度已用满集合（perks「额度用完降级免费版视频生成（需排队）」执行点）。
+
+    口径与订阅页「今日已用 X / 额度」一致：活跃订阅 perks.video_priority_minutes_per_day
+    为上限，get_perks_usage（北京时间当日起）累计视频秒数 >= 上限视为已用完。
+    该集合内的用户其视频任务降级免费车道（排队让位），次日额度恢复自动回付费车道。
+    开关 video_perks_quota_gate_enabled（默认 True，可一键回滚关闭）；
+    单用户查询异常不降级（保持付费车道），绝不阻断视频生成。
+    """
+    from app.config import get_settings
+
+    s = get_settings()
+    if not bool(getattr(s, "video_perks_quota_gate_enabled", True)):
+        return set()
+    if not user_ids:
+        return set()
+    out: set[int] = set()
+    for uid in user_ids:
+        try:
+            from app.services.billing.subscription import get_active_subscription, get_perks_usage
+
+            sub = await get_active_subscription(db, uid)
+            if sub is None:
+                continue
+            cap_min = int((dict(sub.perks or {}).get("video_priority_minutes_per_day")) or 0)
+            if cap_min <= 0:
+                continue
+            used_sec = int((await get_perks_usage(db, uid)).get("video_seconds") or 0)
+            if used_sec >= cap_min * 60:
+                out.add(uid)
+        except Exception:  # noqa: BLE001
+            logger.warning("video perks quota gate: check failed user=%s, keep paid lane", uid, exc_info=True)
+    return out
+
+
+async def should_downgrade_to_free_lane(db: AsyncSession, task_type: str, user_id: int) -> bool:
+    """视频任务创建时门控：发起人订阅的当日优先时长额度已用满 → 新任务直接按免费车道
+    处理（free_task 标签 + 优先级抬升排队让位），兑现 perks「额度用完降级免费版视频生成（需排队）」。
+    非视频任务/查询异常/开关关闭一律 False（不阻断、不影响生图与 LLM 任务）。
+    """
+    if task_type not in CAPACITY_RETRY_TASK_TYPES:
+        return False
+    try:
+        return int(user_id) in await _users_video_quota_exhausted(db, [int(user_id)])
+    except Exception:  # noqa: BLE001
+        logger.warning("video perks quota gate: task-creation check failed user=%s", user_id, exc_info=True)
+        return False
+
+
+def tag_task_payload(
+    payload: dict[str, Any] | None,
+    task_type: str,
+    user_plan: str | None,
+    base_priority: int = 100,
+    user_balance_fen: int | None = None,
+) -> tuple[dict[str, Any], int]:
+    """创建任务时打标：
+
+    - 视频类任务（CAPACITY_RETRY_TASK_TYPES）：capacity_retry（命中 429 后台重排队）；
+    - 免费用户（plan==free 且无余额）：free_task + 优先级抬升（付费 100 先出队，免费自动排队让位）；
+    - 订阅用户或余额充足用户（plan≠free 或 balance>0）：不打 free_task，按基准优先级出队，
+      修复「未订阅但余额充足的用户被当免费用户排队让位」问题。
+    """
+    data = dict(payload or {})
+    priority = int(base_priority)
+    if str(task_type or "") in CAPACITY_RETRY_TASK_TYPES:
+        data.setdefault(PAYLOAD_CAPACITY_RETRY, True)
+    # 免费任务全局打标：仅免费（无订阅且无余额）用户任务排到付费任务之后
+    if not is_paid_user(user_plan, user_balance_fen):
+        data[PAYLOAD_FREE_TASK] = True
+        priority = max(priority, 100 + FREE_TASK_PRIORITY_BUMP)
+    return data, priority
+
+
+async def apply_capacity_retry_if_matched(
+    db: AsyncSession,
+    task: TaskRun,
+    step: Any,
+    exc: BaseException,
+) -> bool:
+    """提交命中容量错误时转 pending 退避重入队；返回 True 表示已处理（调用方勿再走 failed 流程）。
+
+    门控（任一命中即可）：任务类型属于视频类（CAPACITY_RETRY_TASK_TYPES，全局生效），
+    或 payload 已带 capacity_retry 标签（历史任务）；且未被请求取消、错误为容量类。
+    资金保持 frozen，串行后镜不做级联取消。
+    """
+    from app.config import get_settings
+    from app.services.tasks.service import append_task_event, set_task_step_state
+
+    if getattr(task, "cancel_requested", False):
+        return False
+    payload = task.payload if isinstance(task.payload, dict) else {}
+    task_type = str(task.task_type or "")
+    type_gated = task_type in CAPACITY_RETRY_TASK_TYPES
+    # 图像生成任务：仅当命中上游「暂时繁忙」类瞬时故障（Seedream 5xx/不可达）才自愈，
+    # 确定性错误（敏感/欠费/格式等）仍走正常失败流程，避免空转。
+    image_transient_gated = task_type in IMAGE_TRANSIENT_RETRY_TASK_TYPES
+    if payload.get(PAYLOAD_CAPACITY_RETRY):
+        retriable = is_capacity_error(exc)
+    elif type_gated:
+        retriable = is_capacity_error(exc)
+    elif image_transient_gated:
+        retriable = is_upstream_transient_error(exc)
+    else:
+        retriable = False
+    if not retriable:
+        return False
+    settings = get_settings()
+    if not bool(getattr(settings, "video_capacity_retry_enabled", True)):
+        return False
+
+    now = datetime.now(UTC)
+    retries = int(payload.get(PAYLOAD_CAPACITY_RETRIES) or 0) + 1
+    # 状态驱动退避（P1 CapacityRadar）：
+    # - adaptive 开启：429 记入雷达容量事件。被调度器放行的探针头任务按探针节奏
+    #   短退避（probe_interval，30s ×1.5 递增），其余任务按 OPEN 长退避（120s → 封顶 600s）——
+    #   饱和期安静等待、不刷 429、不污染 key 池；容量释放后由雷达 CLOSED 批量放行。
+    # - adaptive 关闭：回落原指数退避公式（legacy）。
+    from app.services.tasks.capacity_radar import get_capacity_radar
+
+    adaptive = bool(getattr(settings, "video_capacity_adaptive_enabled", True))
+    radar = get_capacity_radar() if adaptive else None
+    if radar is not None:
+        radar.record_capacity_fail()
+        if radar.release_probe_head(int(task.id)):
+            # 探针头命中 429：仅按探针节奏短退避（不放大），继续当队头探针
+            backoff_sec = int(radar.probe_interval_sec())
+        else:
+            backoff_sec = radar.open_backoff_sec()
+    else:
+        backoff_sec = capacity_backoff_seconds(retries - 1, settings)
+    next_payload = dict(payload)
+    next_payload[PAYLOAD_CAPACITY_RETRY] = True
+    next_payload[PAYLOAD_CAPACITY_RETRIES] = retries
+
+    task.status = "pending"
+    task.error_code = "capacity_backoff"
+    task.error_message = str(exc)[:400]
+    task.progress_percent = max(int(task.progress_percent or 0), 30)
+    task.next_action_at = now + timedelta(seconds=backoff_sec)
+    task.lease_token = None
+    task.lease_until = None
+    task.payload = next_payload
+    set_task_step_state(task, step, status="queued", now=now)
+
+    # 分镜展示为「排队中」而非「失败」，前端队列面板可见退避时间
+    if task.fragment_id:
+        from app.models_drama import DramaEpisodeFragment
+
+        frag = await db.get(DramaEpisodeFragment, int(task.fragment_id))
+        if frag:
+            params = dict(frag.params or {})
+            # 容量退避是「用户级重排队」，不算同一次任务内的自动重试：
+            # 清零 attempts，避免重入队后 prepare 阶段被判「内部自动重试超上限」
+            params["generation_attempts"] = 0
+            params["generation"] = {
+                "status": "queued",
+                "phase": "capacity_backoff",
+                "attempts": 0,
+                "message": "上游暂时繁忙，后台自动重试生成中",
+                "retry_at": (now + timedelta(seconds=backoff_sec)).isoformat(),
+                "retry_count": retries,
+                "error": str(exc)[:200],
+            }
+            frag.params = params
+
+    # 资产生图/生视频：同步写排队态，避免资产前端只看到「生成失败」
+    if task.asset_id and str(task.task_type or "") in {"asset_video", "asset_image"}:
+        from app.models_drama import DramaAsset
+
+        asset = await db.get(DramaAsset, int(task.asset_id))
+        if asset:
+            aparams = dict(asset.params or {})
+            aparams["generation"] = {
+                "status": "queued",
+                "phase": "capacity_backoff",
+                "message": "上游暂时繁忙，后台自动重试生成中",
+                "retry_at": (now + timedelta(seconds=backoff_sec)).isoformat(),
+            }
+            asset.params = aparams
+
+    await append_task_event(
+        db,
+        task.id,
+        event_type="task.capacity_queued",
+        status=task.status,
+        phase=task.current_step_key,
+        message=f"上游暂时繁忙，{backoff_sec}s 后后台自动重试（第 {retries} 次排队，可随时取消）",
+        payload={
+            "backoff_sec": backoff_sec,
+            "retry": retries,
+            "free_task": bool(next_payload.get(PAYLOAD_FREE_TASK)),
+        },
+    )
+    await db.commit()
+    logger.info(
+        "capacity backoff requeue task_id=%s type=%s retry=%s backoff=%ss free=%s",
+        task.id,
+        task.task_type,
+        retries,
+        backoff_sec,
+        bool(next_payload.get(PAYLOAD_FREE_TASK)),
+    )
+    return True
+
+
+# ---------- 容量雷达放行（P1：CLOSED 批量放行 / 探针头协调） ----------
+
+
+async def release_queued_video_tasks(db: AsyncSession) -> int:
+    """雷达 CLOSED（上游恢复容量）时批量放行排队中的容量退避视频任务。
+
+    把 error_code=capacity_backoff 的 pending 任务 next_action_at 提前到 now + 优先级错峰
+    （付费先于免费，同档位错开 2s，避免同刻风暴打满刚恢复的容量）；
+    串行批次中 deferred 的后续镜（next_action_at=None）不动，仍由
+    reconcile_sequential_batches 按队首成功逐个激活。调度器在 radar.pop_just_closed()
+    命中时调用本函数，随后正常 lease。
+    """
+    from sqlalchemy import select as _select
+
+    from app.services.tasks.capacity_radar import get_capacity_radar
+
+    now = datetime.now(UTC)
+    radar = get_capacity_radar()
+    stmt = (
+        _select(TaskRun.id, TaskRun.priority, TaskRun.next_action_at)
+        .where(
+            TaskRun.status == "pending",
+            TaskRun.error_code == "capacity_backoff",
+            TaskRun.task_type.in_(sorted(CAPACITY_RETRY_TASK_TYPES)),
+        )
+    )
+    rows = list((await db.execute(stmt)).all())
+    changed = 0
+    for row in rows:
+        if row.next_action_at is None:
+            continue  # 串行 deferred，按镜序逐个激活，不批量放行
+        task = await db.get(TaskRun, int(row.id))
+        if task is None:
+            continue
+        offset = radar.release_offset_sec(int(row.priority))
+        task.next_action_at = now + timedelta(seconds=offset)
+        changed += 1
+    if changed:
+        await db.commit()
+        logger.info("capacity radar CLOSED released queued video tasks count=%s", changed)
+    return changed
+
+
+async def designate_probe_head(db: AsyncSession) -> int | None:
+    """雷达探针时刻：选「探针头」视频任务立即提交（canary，零额外探测请求）。
+
+    多槽付费快车道（修复订阅/余额充足用户饱和期仍排队的问题）：
+    - 付费车道（发起人为订阅或余额>0）：并行 video_capacity_paid_probe_slots 个（默认 4），
+      饱和期每分钟最多 4 个提交窗口，订阅「优先生成」权益在调度层真正生效；
+    - 免费车道：兜底 video_capacity_free_probe_slots 个（默认 1），免费不饿死；
+    - 候选：未到期（next_action_at>now）的容量退避任务优先（提前到 now），
+      空位再用已到期视频任务补；串行 deferred 镜（next_action_at=None）不参与；
+    - 付费判定按发起人**实时** plan/余额（用户中途订阅立即生效），
+      payload free_task 标记兜底（任务创建后降级/取消订阅的情况）。
+
+    探针命中 429 → 雷达保持 OPEN（探针间隔 ×1.5 递增，下轮换下一组任务当探针）；
+    任一探针成功 → 雷达 CLOSED（批量放行 + heal key 池）。
+    返回最早被指定的探针任务 id；无可指定任务返回 None。
+    """
+    from app.config import get_settings
+    from sqlalchemy import select as _select
+
+    from app.models import User as _User
+    from app.services.tasks.capacity_radar import get_capacity_radar
+
+    settings = get_settings()
+    paid_slots = max(1, int(getattr(settings, "video_capacity_paid_probe_slots", 4)))
+    free_slots = max(1, int(getattr(settings, "video_capacity_free_probe_slots", 1)))
+
+    now = datetime.now(UTC)
+    radar = get_capacity_radar()
+    video_types = sorted(CAPACITY_RETRY_TASK_TYPES)
+
+    # 候选池：pending 视频任务且 next_action_at 非 None（串行 deferred 镜不参与）
+    stmt = (
+        _select(
+            TaskRun.id,
+            TaskRun.requested_by,
+            TaskRun.priority,
+            TaskRun.next_action_at,
+            TaskRun.error_code,
+            TaskRun.created_at,
+        )
+        .where(
+            TaskRun.status == "pending",
+            TaskRun.task_type.in_(video_types),
+            TaskRun.next_action_at.is_not(None),
+        )
+    )
+    rows = list((await db.execute(stmt)).all())
+    if not rows:
+        return None
+
+    # 发起人实时付费判定：plan≠free 或 余额>0；free_task 标记兜底（任务创建后降级）
+    user_ids = sorted({int(r.requested_by) for r in rows if r.requested_by})
+    paid_users: set[int] = set()
+    if user_ids:
+        urows = (
+            await db.execute(
+                _select(_User.id, _User.plan, _User.balance_fen).where(_User.id.in_(user_ids))
+            )
+        ).all()
+        paid_users = {
+            int(r.id) for r in urows if is_paid_user(r.plan, r.balance_fen)
+        }
+    # 权益时长额度门控：订阅用户当日用满 perks.video_priority_minutes_per_day →
+    # 其视频任务本 tick 降级免费车道排队（perks「额度用完降级免费版视频生成（需排队）」执行点）；
+    # 次日额度恢复自动回付费车道。仅降级当次调度，不改 payload 标签（任务创建时已定档）。
+    quota_exhausted = await _users_video_quota_exhausted(db, sorted(paid_users))
+
+    # 分车道排队：未到期退避任务优先（提前到 now），再补已到期任务。
+    # 历史行可能是 naive 时间戳（SQLite），统一按 UTC 归一化避免比较 TypeError。
+    def _norm_ts(ts):
+        if ts is not None and ts.tzinfo is None:
+            return ts.replace(tzinfo=UTC)
+        return ts
+
+    not_due = [r for r in rows if _norm_ts(r.next_action_at) is not None and _norm_ts(r.next_action_at) > now]
+    due = [r for r in rows if r.next_action_at is None or _norm_ts(r.next_action_at) is None or _norm_ts(r.next_action_at) <= now]
+    not_due.sort(key=lambda r: (int(r.priority or 100), _norm_ts(r.next_action_at), int(r.id)))
+    due.sort(key=lambda r: (int(r.priority or 100), r.created_at, int(r.id)))
+
+    heads: list[tuple[int, str]] = []
+    paid_used = 0
+    free_used = 0
+    for row in not_due + due:
+        # 车道判定：实时付费（订阅/余额）且任务创建时非免费标记 → 付费快车道
+        task = await db.get(TaskRun, int(row.id))
+        if task is None:
+            continue
+        p = task.payload if isinstance(task.payload, dict) else {}
+        payload_flag_free = bool(p.get(PAYLOAD_FREE_TASK))
+        lane = "paid" if (int(row.requested_by) in paid_users and not payload_flag_free) else "free"
+        # 权益时长额度门控：付费用户当日用满优先额度 → 本 tick 降级免费车道排队
+        if lane == "paid" and int(row.requested_by) in quota_exhausted:
+            lane = "free"
+        if lane == "paid" and paid_used >= paid_slots:
+            continue
+        if lane == "free" and free_used >= free_slots:
+            continue
+        if _norm_ts(row.next_action_at) is not None and _norm_ts(row.next_action_at) > now:
+            # 探针提前：立即触发提交，探针结果驱动雷达状态
+            task.next_action_at = now
+        heads.append((int(row.id), lane))
+        if lane == "paid":
+            paid_used += 1
+        else:
+            free_used += 1
+        if paid_used >= paid_slots and free_used >= free_slots:
+            break
+
+    if not heads:
+        return None
+    radar.designate_probe_heads(heads)
+    await db.commit()
+    logger.info(
+        "capacity radar probe heads designated: paid=%s free=%s total=%s (slots %s/%s)",
+        paid_used,
+        free_used,
+        len(heads),
+        paid_slots,
+        free_slots,
+    )
+    return heads[0][0]
+
+
+# 存量终态视频的回收识别：串行级联取消的后镜（cancelled + sequential_blocked）。
+# 429 容量类失败识别 error_message 文本（failed）；用户手动取消/分镜过期取消不回收。
+_RECLAIM_ERROR_CODES = {"sequential_blocked"}
+
+
+async def _fragment_inflight_ids(db: AsyncSession, frag_ids: set[int]) -> set[int]:
+    """同分镜存在任何非终态任务（pending/leased/running/awaiting_poll）的分镜 id。"""
+    if not frag_ids:
+        return set()
+    from sqlalchemy import select as _select
+    from app.models_tasks import TaskRun
+
+    stmt = _select(TaskRun.fragment_id).where(
+        TaskRun.task_type == "fragment_video",
+        TaskRun.fragment_id.in_(sorted(frag_ids)),
+        TaskRun.status.in_(("pending", "leased", "running", "awaiting_poll")),
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return {int(r) for r in rows if r is not None}
+
+
+async def reclaim_stalled_video_tasks(db: AsyncSession) -> int:
+    """一次性回收存量「终态」视频任务进后台重排队队列（启动时调用，幂等）。
+
+    覆盖：串行级联取消（sequential_blocked）的 pending→cancelled 后镜 + 429/容量类 failed。
+    规则：
+    - 只回收「资金干净」的任务（billing_status ∈ {none, skipped}，无历史 freeze/settle 流水）：
+      级联取消的后镜从未预扣，原地重跑走全新周期；而 429 failed 首镜已是 settled + 有历史
+      流水，复用 task_id 会撞 settle_task 钱包侧幂等门闩导致新冻结资金泄漏，故不回收
+      （交给 UI「重新生成」建干净新任务）。
+    - 自动跳过已有在途任务的分镜（不重复出片）；
+    - 分镜 generation=done（已有成片）不回收；
+    - 串行任务 reset 为 pending + next_action_at=None，交给 reconcile_sequential_batches /
+      rebalance_project_fragment_video_queue 按镜序逐个激活；
+    - 非串行任务 next_action_at=now 立即重新提交；
+    - 用户可随时取消（全额退款）；
+    - 回收后任务离开终态，下次启动不会重复回收（幂等）。
+    """
+    from app.config import get_settings
+    from app.models import User
+    from app.models_drama import DramaEpisodeFragment
+    from app.services.drama.generation import fragment_generation_status
+    from app.services.tasks.service import append_task_event, set_task_step_state
+
+    settings = get_settings()
+    if not bool(getattr(settings, "video_capacity_reclaim_stalled", True)):
+        return 0
+    if not bool(getattr(settings, "video_capacity_retry_enabled", True)):
+        return 0
+
+    # 资金干净的终态任务才原地回收（避免复用 settled 任务的二次冻结周期泄漏）
+    stmt = (
+        select(TaskRun)
+        .options(selectinload(TaskRun.steps))
+        .where(
+            TaskRun.task_type.in_(sorted(CAPACITY_RETRY_TASK_TYPES)),
+            TaskRun.status.in_(("failed", "cancelled")),
+            TaskRun.domain == "drama",
+            TaskRun.billing_status.in_(("none", "skipped")),
+        )
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    now = datetime.now(UTC)
+    changed = 0
+
+    # 识别容量类 / 级联取消候选
+    candidates: list[TaskRun] = []
+    for task in rows:
+        code = str(task.error_code or "")
+        if code not in _RECLAIM_ERROR_CODES and not is_capacity_error(task.error_message or ""):
+            continue
+        candidates.append(task)
+    if not candidates:
+        return 0
+
+    frag_ids = set()
+    for task in candidates:
+        if task.fragment_id:
+            frag_ids.add(int(task.fragment_id))
+    inflight = await _fragment_inflight_ids(db, frag_ids)
+
+    for task in candidates:
+        # 用户主动取消（cancel_requested）不能复活，尊重取消意图
+        if getattr(task, "cancel_requested", False):
+            continue
+        # 分镜已有在途任务 → 自动跳过（用户请求的防重复出片）
+        if task.fragment_id and int(task.fragment_id) in inflight:
+            continue
+        # 分镜已生成完成（有成片、无进行中 generation）→ 跳过
+        if task.fragment_id:
+            frag = await db.get(DramaEpisodeFragment, int(task.fragment_id))
+            if frag is not None and (frag.video or "").strip():
+                gstatus = str(fragment_generation_status(frag).get("status") or "").lower()
+                if gstatus == "done":
+                    continue
+        payload = dict(task.payload if isinstance(task.payload, dict) else {})
+        payload[PAYLOAD_CAPACITY_RETRY] = True
+        # 免费版用户任务补打 free_task + 优先级抬升（与 create_task 打标一致）
+        user = await db.get(User, int(task.requested_by))
+        if user is not None:
+            tagged, tagged_priority = tag_task_payload(
+                payload,
+                task.task_type,
+                getattr(user, "plan", None),
+                base_priority=int(task.priority or 100),
+            )
+            payload = tagged
+            task.priority = tagged_priority
+        task.status = "pending"
+        task.error_code = None
+        task.error_message = None
+        task.finished_at = None
+        task.lease_token = None
+        task.lease_until = None
+        task.payload = payload
+        if payload.get("sequential"):
+            # 串行后镜不抢跑：等待 reconcile/rebalance 按镜序激活
+            task.next_action_at = None
+        else:
+            task.next_action_at = now
+        # 分镜展示态：排队中 + 清零内部重试计数
+        if task.fragment_id:
+            frag = await db.get(DramaEpisodeFragment, int(task.fragment_id))
+            if frag is not None:
+                fparams = dict(frag.params or {})
+                fparams["generation_attempts"] = 0
+                fparams["generation"] = {
+                    "status": "queued",
+                    "phase": "capacity_backoff",
+                    "attempts": 0,
+                    "message": "容量回收：后台自动重试生成中，可随时取消",
+                }
+                frag.params = fparams
+        # 资产生视频：同步写排队态
+        if task.asset_id and str(task.task_type or "") == "asset_video":
+            from app.models_drama import DramaAsset
+
+            asset = await db.get(DramaAsset, int(task.asset_id))
+            if asset is not None:
+                aparams = dict(asset.params or {})
+                aparams["generation"] = {
+                    "status": "queued",
+                    "phase": "capacity_backoff",
+                    "message": "容量回收：后台自动重试生成中",
+                }
+                asset.params = aparams
+        set_task_step_state(
+            task,
+            task.steps[0] if task.steps else None,
+            status="queued",
+            now=now,
+        )
+        await append_task_event(
+            db,
+            task.id,
+            event_type="task.capacity_reclaimed",
+            status=task.status,
+            phase=task.current_step_key,
+            message="存量失败/级联取消任务已回收进后台重排队队列，命中上游容量后自动继续生成",
+        )
+        changed += 1
+
+    if changed:
+        await db.commit()
+        logger.info("reclaimed stalled video tasks count=%s", changed)
+    return changed

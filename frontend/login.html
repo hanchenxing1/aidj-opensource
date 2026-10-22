@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>PrintFilm · 登录/注册</title>
+<style>
+:root{--bg:#0b0d12;--card:#151922;--card2:#1b2130;--tx:#e8ecf5;--mut:#8b93a7;
+--ac:#7c5cff;--ac2:#00d4c6;--ok:#37d39b;--err:#ff5d6c;--bd:#262d3f}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--tx);
+font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.wrap{max-width:480px;margin:0 auto;padding:20px 16px 40px}
+header{display:flex;align-items:center;gap:10px;margin:8px 0 18px}
+header .logo{width:34px;height:34px;border-radius:9px;
+background:linear-gradient(135deg,var(--ac),var(--ac2));
+display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px}
+header b{font-size:17px}
+header .tag{margin-left:auto;font-size:11px;color:var(--ac2);border:1px solid var(--bd);
+border-radius:99px;padding:3px 10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;
+padding:18px 16px;margin-bottom:14px}
+h2{margin:0 0 12px;font-size:16px}
+p.tip{color:var(--mut);font-size:12px;line-height:1.7;margin:10px 0 0}
+label{display:block;font-size:12px;color:var(--mut);margin:12px 0 6px}
+input{width:100%;background:var(--card2);border:1px solid var(--bd);
+color:var(--tx);border-radius:10px;padding:12px;font-size:16px;outline:none}
+input:focus{border-color:var(--ac)}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;margin-top:14px;
+background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;
+font-size:15px;font-weight:700;cursor:pointer}
+.btn:active{opacity:.85}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.link{display:block;width:100%;text-align:center;background:none;border:0;color:var(--mut);
+font-size:13px;margin-top:12px;padding:6px;cursor:pointer;text-decoration:underline}
+.msg{font-size:13px;line-height:1.6;padding:10px 12px;border-radius:10px;margin-top:10px;display:none}
+.msg.err{display:block;background:#2a1519;border:1px solid #55202a;color:var(--err)}
+.msg.ok{display:block;background:#12281f;border:1px solid #1f4d3a;color:var(--ok)}
+.tabs{display:flex;gap:8px;margin:0 0 14px}
+.tabs button{flex:1;border:1px solid var(--bd);background:var(--card2);color:var(--mut);
+border-radius:10px;padding:9px;font-size:14px;cursor:pointer}
+.tabs button.on{border-color:var(--ac);color:var(--tx);background:#221b3a}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--bd);
+border-top-color:var(--ac2);border-radius:50%;animation:sp 1s linear infinite;
+vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.footer{margin-top:20px;text-align:center;font-size:12px;color:var(--mut)}
+.footer a{color:var(--ac2);text-decoration:none}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><div class="logo">P</div><b>PrintFilm 短剧云</b><span class="tag">创作工作台</span></header>
+
+<section class="card">
+  <div class="tabs">
+    <button id="tab_login" class="on" onclick="switchTab('login')">登录</button>
+    <button id="tab_reg" onclick="switchTab('reg')">注册</button>
+  </div>
+
+  <div id="form_login">
+    <label>邮箱</label>
+    <input id="l_email" type="email" placeholder="you@example.com" autocomplete="email">
+    <label>密码</label>
+    <input id="l_pwd" type="password" placeholder="密码" autocomplete="current-password">
+    <button class="btn" id="b_login" onclick="doLogin()">登 录</button>
+    <button class="link" onclick="openForgot()">忘记密码？</button>
+    <div class="msg" id="m_login"></div>
+    <p class="tip">与网页端 dj.aiwyq.bond 同一账号体系：在 <b style="color:var(--ac2)">dj.aiwyq.bond/m/</b> 注册的账号，
+    直接在这里输入邮箱密码登录即可（自动同步订阅与权益）；本机新注册也可用。生成的短剧全部保存在本机。</p>
+  </div>
+
+  <div id="form_reg" hidden>
+    <label>邮箱</label>
+    <input id="r_email" type="email" placeholder="you@example.com" autocomplete="email">
+    <label>昵称（可选）</label>
+    <input id="r_nick" type="text" placeholder="默认「创作者」" maxlength="64">
+    <label>密码（至少 6 位）</label>
+    <input id="r_pwd" type="password" placeholder="至少 6 位" autocomplete="new-password">
+    <button class="btn" id="b_reg" onclick="doRegister()">注 册</button>
+    <div class="msg" id="m_reg"></div>
+    <p class="tip">注册即开通免费用户，赠送 <b style="color:var(--ok)">5 次生成额度</b> 与 <b style="color:var(--ok)">5 元体验金</b>，可直接体验短剧生成。</p>
+    <p class="tip">也可以在网页端 <a href="https://dj.aiwyq.bond/m/" target="_blank" style="color:var(--ac2)">dj.aiwyq.bond/m/ ↗</a> 注册（同一账号体系，支持邮箱验证码+滑块注册），注册后用该账号在本页登录，权益自动同步。</p>
+  </div>
+
+  <div id="form_forgot" hidden>
+    <label>邮箱</label>
+    <input id="f_email" type="email" placeholder="注册邮箱">
+    <button class="btn" id="b_forgot" onclick="doForgot()">发送重置邮件</button>
+    <button class="link" onclick="switchTab('login')">← 返回登录</button>
+    <div class="msg" id="m_forgot"></div>
+    <p class="tip">若该邮箱已注册，将收到一封含重置链接的邮件；链接 30 分钟内有效。</p>
+  </div>
+</section>
+
+<div class="footer">
+  已注册？<a href="javascript:switchTab('login')">登录</a> · <a href="javascript:switchTab('reg')">注册</a>
+  <br>
+  登录后可进入 <a href="/">PrintFilm 主站</a>
+</div>
+</div>
+
+<script>
+// 与 storyhub 前端同 token 存储约定
+const TOKEN_KEY = 'token';
+const API = '/api/auth';
+
+function $(id){return document.getElementById(id);}
+function show(id){
+  ['form_login','form_reg','form_forgot'].forEach(function(s){$(s).hidden = (s!==id);});
+}
+function msg(id,txt,ok){var el=$(id);el.textContent=txt||'';el.className='msg '+(ok?'ok':'err');}
+function clearMsg(id){var el=$(id);el.textContent='';el.className='msg';}
+function switchTab(t){
+  $('tab_login').classList.toggle('on', t==='login');
+  $('tab_reg').classList.toggle('on', t==='reg');
+  if(t==='login'){show('form_login');clearMsg('m_login');}
+  else if(t==='reg'){show('form_reg');clearMsg('m_reg');}
+}
+function openForgot(){
+  $('tab_login').classList.remove('on'); $('tab_reg').classList.remove('on');
+  show('form_forgot'); clearMsg('m_forgot');
+}
+function busy(btn,on){ btn.disabled=on; btn.innerHTML=on?'<span class="spin"></span>处理中…':btn.dataset.label; }
+
+async function api(path, body){
+  var r = await fetch(API+path, {
+    method: body ? 'POST' : 'GET',
+    headers: {'Content-Type':'application/json'},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  var txt = await r.text();
+  var j; try{ j = JSON.parse(txt); }catch(e){ j = {detail: txt}; }
+  return {ok: r.ok, status: r.status, j: j};
+}
+function errText(j, fallback){
+  var d = j && (j.detail || j.message || j.msg);
+  if(typeof d === 'string') return d;
+  if(d && typeof d === 'object'){
+    if(Array.isArray(d)){ return d.map(function(x){return (x.msg||x.message||JSON.stringify(x));}).join('；'); }
+    return JSON.stringify(d);
+  }
+  return fallback;
+}
+function finishAuth(token, email){
+  localStorage.setItem(TOKEN_KEY, token);
+  if(email) localStorage.setItem('user_email', email);
+  // 直接进主站
+  window.location.replace('/');
+}
+
+function doLogin(){
+  var e=$('l_email').value.trim(), p=$('l_pwd').value;
+  if(!e || !p){ msg('m_login','请填写邮箱和密码'); return; }
+  var b=$('b_login'); b.dataset.label='登 录';
+  busy(b,true); clearMsg('m_login');
+  api('/login',{email:e,password:p}).then(function(res){
+    busy(b,false);
+    if(res.ok){ finishAuth(res.j.access_token, e); return; }
+    msg('m_login', errText(res.j, '登录失败（HTTP '+res.status+'）'));
+  }).catch(function(err){
+    busy(b,false);
+    msg('m_login','网络错误：'+err);
+  });
+}
+
+function doRegister(){
+  var e=$('r_email').value.trim(), p=$('r_pwd').value, n=$('r_nick').value.trim();
+  if(!e || !p){ msg('m_reg','请填写邮箱和密码'); return; }
+  if(p.length<6){ msg('m_reg','密码至少 6 位'); return; }
+  var body = {email:e, password:p};
+  if(n) body.nickname = n;
+  var b=$('b_reg'); b.dataset.label='注 册';
+  busy(b,true); clearMsg('m_reg');
+  api('/register',body).then(function(res){
+    busy(b,false);
+    if(res.ok){ finishAuth(res.j.access_token, e); return; }
+    msg('m_reg', errText(res.j, '注册失败（HTTP '+res.status+'）'));
+  }).catch(function(err){
+    busy(b,false);
+    msg('m_reg','网络错误：'+err);
+  });
+}
+
+function doForgot(){
+  var e=$('f_email').value.trim();
+  if(!e){ msg('m_forgot','请填写邮箱'); return; }
+  var b=$('b_forgot'); b.dataset.label='发送重置邮件';
+  busy(b,true); clearMsg('m_forgot');
+  api('/forgot-password',{email:e}).then(function(res){
+    busy(b,false);
+    if(res.ok){ msg('m_forgot', '若该邮箱已注册，重置邮件已发送，请查收', true); return; }
+    msg('m_forgot', errText(res.j, '发送失败（HTTP '+res.status+'）'));
+  }).catch(function(err){
+    busy(b,false);
+    msg('m_forgot','网络错误：'+err);
+  });
+}
+
+// Enter 快捷
+document.addEventListener('keydown', function(ev){
+  if(ev.key!=='Enter') return;
+  if(!$('form_login').hidden) doLogin();
+  else if(!$('form_reg').hidden) doRegister();
+  else if(!$('form_forgot').hidden) doForgot();
+});
+</script>
+</body>
+</html>

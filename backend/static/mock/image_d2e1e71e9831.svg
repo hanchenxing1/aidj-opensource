@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="hsl(210,28%,22%)"/>
+      <stop offset="100%" stop-color="hsl(250,22%,38%)"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1280" fill="url(#g)"/>
+  <rect x="57" y="358" width="288" height="358" rx="10" fill="hsl(230,35%,72%)" opacity="0.9"/>
+  <circle cx="518" cy="486" r="100" fill="hsl(290,30%,65%)" opacity="0.55"/>
+  <text x="57" y="998" fill="#f2ebe0" font-family="Georgia, serif" font-size="28">Mock Storyboard</text>
+  <text x="57" y="1075" fill="#d7cfc3" font-family="sans-serif" font-size="18">full body portrait of a young Chinese man …</text>
+</svg>

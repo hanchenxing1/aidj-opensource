@@ -1,0 +1,41 @@
+# secrets / runtime
+.env
+.env.*
+backend/data/
+backend/logs/
+backend/static/generated/
+backend/static/site/
+backend/_probe*.py
+backend/_oneclick_test.py
+backend/_aidj_*.log
+backend/*.bak*
+# local keys / api keys
+**/local_api_key.txt
+**/agnes_key_pool.json
+**/*.db
+**/*.db-shm
+**/*.db-wal
+# runtime caches
+data/wv2/
+# binaries / installers / exe (client binaries go to release, not repo)
+*.exe
+*.dm
+*.ap_
+# webview dlls are binary, excluded
+Microsoft.Web.WebView2*.dll
+WebView2Loader.dll
+# python bundled runtime
+python/
+.venv/
+venv/
+# ffmpeg
+ffmpeg/
+# build artifacts & project scratch data
+LZD_PAWN_001/
+_156center/
+_run_probe.bat
+# apk release assets live in GitHub Release, not in repo
+**/*.apk
+# logs
+*.log
+_no*.log
