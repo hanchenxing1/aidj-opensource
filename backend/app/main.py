@@ -118,10 +118,11 @@ app.include_router(prod_api.router)  # 服务间接口 /prod-api/*（独立鉴�
 # 单机版：API key 单一本地源 = data/local_api_key.txt（运行时用户输入）
 # 启动时把 key 同步进 .env（AGNES/OPENAI/ARK_API_KEY）与本地 key 池，
 # 使模型渠道 bootstrap 能拾取。
-# 开箱即用：内置共享 TokenFree vip key（new.aiwyq.bond vip 分组），
-# 本地 key 文件为空时自动注入；用户也可在 new 控制台充值/替换为自己的 key。
+# 开箱即用：默认不内置共享 key（开源包不再打包真实凭据）。
+# 用户在 new.aiwyq.bond 控制台注册/充值后，把自有 key 填入 data/local_api_key.txt。
+# 若需在部署时提供共享 key，请在 .env 或 BUILTIN_TOKENFREE_VIP_KEY 中注入。
 # ======================================================================
-BUILTIN_TOKENFREE_VIP_KEY = "sk-IXdOFjRmYSzZZ0Vx9jahLkeUC6cu2HFsyAQ9XOKB1w0cNF2x"
+BUILTIN_TOKENFREE_VIP_KEY = os.getenv("BUILTIN_TOKENFREE_VIP_KEY", "")
 TOKENFREE_CONSOLE_URL = "https://new.aiwyq.bond/console"
 
 

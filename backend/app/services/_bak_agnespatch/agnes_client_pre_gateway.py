@@ -1,7 +1,7 @@
 """Agnes AI 异步客户端（httpx）：文本 / 图像 / 视频。
 
-端点契约（https://apihub.agnes-ai.com，2026-09）：
-  Base URL     https://apihub.agnes-ai.com/v1
+端点契约（历史备份：开源版统一走 new.aiwyq.bond New API 网关，本文件仅存档，勿用于生产）：
+  Base URL     https://new.aiwyq.bond/v1
   认证头        Authorization: Bearer <api_key>；Content-Type: application/json
   文本模型      agnes-3.0-flash          POST /v1/chat/completions（OpenAI 兼容）
   图像模型      agnes-image-2.5-flash    POST /v1/images/generations
@@ -30,7 +30,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BASE_URL = "https://apihub.agnes-ai.com/v1"
+DEFAULT_BASE_URL = "https://new.aiwyq.bond/v1"
 DEFAULT_TEXT_MODEL = "agnes-3.0-flash"
 DEFAULT_IMAGE_MODEL = "agnes-image-2.5-flash"
 DEFAULT_VIDEO_MODEL = "agnes-video-2.5-flash"

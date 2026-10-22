@@ -1,11 +1,19 @@
 """Agnes AI 异步客户端（httpx）：文本 / 图像 / 视频。
 
-端点契约（https://apihub.agnes-ai.com，2026-09）：
-  Base URL     https://apihub.agnes-ai.com/v1
+端点契约（开源版统一走 new.aiwyq.bond New API 网关，原 Agnes 直连 apihub.agnes-ai.com）：
+  Base URL     https://new.aiwyq.bond/v1
   认证头        Authorization: Bearer <api_key>；Content-Type: application/json
   文本模型      agnes-3.0-flash          POST /v1/chat/completions（OpenAI 兼容）
   图像模型      agnes-image-2.5-flash    POST /v1/images/generations
-  视频模型      agnes-video-2.5-flash    POST /v1/videos + GET /agnesapi?video_id=...
+  视频模型      agnes-video-2.5-flash    POST /v1/videos + GET /videos/{id}
+
+如何申请 key（用户操作步骤）：
+  1. 浏览器打开 https://new.aiwyq.bond/console ，用邮箱注册并登录
+  2. 控制台首页 → API Keys 页签 → 复制/新建 API key（sk- 开头）
+  3. 单机版：把 key 粘贴到「新手指引页」或直接追加到 backend/data/local_api_key.txt，
+     服务启动时会自动同步进 backend/.env 的 AGNES_API_KEY/ARK_API_KEY/OPENAI_API_KEY
+  4. 网页版/自部署：在 backend/.env 里填 AGNES_API_KEY（或逗号分隔的 AGNES_API_KEYS 池）
+     并把 AGNES_BASE_URL/ARK_BASE_URL/OPENAI_BASE_URL 保持为 https://new.aiwyq.bond/v1
 
 与 /_video_submit/agnes_api.py（同步 urllib 版，pri 引擎已验证）同构：
 - 多账号 key 池：渠道 api_key 或 AGNES_API_KEYS 逗号分隔；429/401 自动轮换
@@ -30,7 +38,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BASE_URL = "https://apihub.agnes-ai.com/v1"
+DEFAULT_BASE_URL = "https://new.aiwyq.bond/v1"
 DEFAULT_TEXT_MODEL = "agnes-3.0-flash"
 DEFAULT_IMAGE_MODEL = "agnes-image-2.5-flash"
 DEFAULT_VIDEO_MODEL = "agnes-video-2.5-flash"
@@ -147,7 +155,7 @@ class AgnesClient:
         # 网关模式：base_url 指向 new-api 网关（如 new.aiwyq.bond）时，
         # 图片腿用顶层 b64_json（内联免下载 platform-outputs），视频腿走 OpenAI task 协议
         # （/videos 提交 + /videos/{id} 轮询 + /videos/{id}/content 下载）。
-        # 原生 apihub 路径不动（仍走 native /agnesapi）。
+        # 原生直连路径可选（未配置网关时）；开源默认统一走 https://new.aiwyq.bond/v1 网关。
         self.is_gateway = _is_gateway_base(base_url)
         self.base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
         self.text_model = text_model or DEFAULT_TEXT_MODEL

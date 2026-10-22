@@ -58,8 +58,13 @@ class Settings(BaseSettings):
     seedance_duration_min: int = 4
     seedance_duration_max: int = 30
     model_audio: str = "qwen-tts-2025-05-22"
-    # Agnes AI 引擎（apihub.agnes-ai.com）；配置 AGNES_API_KEYS 即启用 Agnes 渠道
-    agnes_base_url: str = "https://apihub.agnes-ai.com/v1"
+    # Agnes AI 引擎；开源版统一走 new.aiwyq.bond New API 网关（与 ark/openai 同址）。
+    # 用户需自行到 new.aiwyq.bond 控制台申请 key：
+    #   1. 打开 https://new.aiwyq.bond/console，邮箱注册登录
+    #   2. 控制台首页 → API Keys → 创建/复制 API key（sk- 开头）
+    #   3. 将 key 填入 backend/.env 的 AGNES_API_KEY / ARK_API_KEY / OPENAI_API_KEY，
+    #      或写入 backend/data/local_api_key.txt（单机版运行时会同步到 .env）
+    agnes_base_url: str = "https://new.aiwyq.bond/v1"
     agnes_api_key: str = ""
     # 逗号分隔多账号 key 池（429 自动轮换；N 把 key ≈ N× 吞吐）
     agnes_api_keys: str = ""

@@ -33,11 +33,16 @@ def resolve_llm_api_key() -> str:
 
 
 # 解析 OpenAI 兼容 Base URL
+# 开源版统一默认走 new.aiwyq.bond New API 网关；
+# 用户需在 https://new.aiwyq.bond/console 注册并申请 API key（sk- 开头）：
+#   1. 邮箱注册登录 → 控制台首页 → API Keys → 复制/新建 key
+#   2. 单机版：粘贴到「新手指引页」或 backend/data/local_api_key.txt（启动时自动同步进 .env）
+#   3. 网页版/自部署：backend/.env 填 OPENAI_API_KEY，OPENAI_BASE_URL 保持 https://new.aiwyq.bond/v1
 def resolve_llm_base_url() -> str:
     base = (get_settings().openai_base_url or "").strip().rstrip("/")
     if base:
         return base
-    return "https://api.openai.com/v1"
+    return "https://new.aiwyq.bond/v1"
 
 
 # kimi / deepseek-v4 默认 thinking 会占满 token、content 常为空；结构化产出统一关闭
