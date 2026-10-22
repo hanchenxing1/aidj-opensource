@@ -2,11 +2,21 @@
 
 AIDJ 是一个面向个人创作者的 AI 短剧/漫剧生产工具，覆盖从剧本导入、分镜生成、资产生成到视频合成、BGM/配音的完整链路。
 
+> **边缘计算亮点**：内置 **DePIN P2P 边缘加速网络（depina）**——把「用户自己的设备」变成边缘加速节点，
+> 网页端访问远端资源时由就近节点代拉源站、经 libp2p 回流，减少公网跳数降低首字节延迟；
+> 节点贡献流量赚奖励（单向激励：使用方免费，贡献方赚）。
+> 完整设计见 [docs/depin-edge-acceleration.md](docs/depin-edge-acceleration.md)。
+
+## 项目标签
+
+`AI short drama` `AI video generator` `FastAPI` `P2P` `DePIN` `edge computing` `libp2p` `proxy acceleration` `WebRTC` `Android` `Windows desktop`
+
 本仓库包含：
 
 - **单机版**：Windows 桌面软件（WebView2 内嵌前端）+ FastAPI 后端 + 内嵌 Python 3.12 运行时，全程本地 SQLite 记录，唯一外部调用为 `new.aiwyq.bond` 付费网关（需自行申请 key）
 - **网页版前后端**：`frontend/` 静态页 + `backend/` FastAPI 服务，可直接本地起服务，也可部署为独立站点
 - **手机端客户端**：`android-apk/` 目录下的 Android APK（release / debug），可直接安装或自行用 Android Studio 重新构建
+- **DePIN 边缘加速**：`backend/app/services/depina/` + `backend/app/api/depina.py`，libp2p P2P 网络 + HTTP 反代数据面 + 就近选路 + 贡献奖励（详见上方文档）
 
 ## 目录结构
 
@@ -14,17 +24,40 @@ AIDJ 是一个面向个人创作者的 AI 短剧/漫剧生产工具，覆盖从�
 aidj-opensource/
 ├── backend/            # FastAPI 后端（app/ 为主）
 │   ├── app/
-│   │   ├── api/        # 路由（projects / drama / billing / tasks ...）
+│   │   ├── api/        # 路由（projects / drama / billing / tasks / depina ...）
 │   │   ├── services/   # 业务逻辑（drama 生成、billing、depina、ffmpeg_compose ...）
-│   │   ├── models.py   # 数据库模型
-│   │   └── main.py     # FastAPI 入口
+│   │   │   └── depina/ # DePIN 边缘加速（sidecar/registry/contribution/node_service）
+│   │   ├── models_depina.py  # DePIN 节点/加速用量 表模型
+│   │   └── main.py     # FastAPI 入口（lifespan 自动拉起 depina sidecar）
 │   ├── requirements.txt
 │   └── ...
-├── frontend/           # 网页版前端静态资源
+├── frontend/           # 网页版前端静态资源（含加速开关页 accel.html）
 ├── android-apk/        # 手机端 APK（release + debug）
+├── docs/
+│   └── depin-edge-acceleration.md  # ★ 边缘计算 / DePIN 加速设计说明
 ├── .gitignore
 └── README.md
 ```
+
+## 边缘计算 / DePIN 加速（depina）
+
+**一句话**：把每个装了 AIDJ 的用户设备变成「边缘 CDN 节点」，用闲置带宽给网页端提速，贡献赚奖励。
+
+```
+网页端 ──nearby?url──▶ 中心控制面(156) ──选路──▶ 就近边缘节点(用户设备)
+   ▲                                          │
+   │              ② http_proxy 代拉源站       │
+   └──────────── ④ libp2p P2P 回流响应 ◀──────┘
+```
+
+- **P2P 数据面**：Go sidecar（libp2p host）+ Ed25519 身份 + 本地 seed 持久化（peer_id 重启稳定）
+- **就近选路**：`registry.find_nearby_node` 按「proxy_enabled + 白名单 host + 90s 心跳 + served_bytes 升序」挑轻负载节点；无可用自动回退直连源站
+- **单向激励**：使用方反代流量免费；贡献方按 `每 KB × ACCEL_REWARD_FEN_PER_KB`（1分/KB≈¥1/GB）入账节点 owner 钱包（可折算视频秒数）
+- **验证**：`accel_echo`（回显）+ `connectedness`/`relay_peers`（连接状态）排障
+
+> 完整架构图、组件位置、API 端点、选路策略、激励模型、扩展路线：
+> [docs/depin-edge-acceleration.md](docs/depin-edge-acceleration.md)
+
 
 ## 单机版（Windows）
 
